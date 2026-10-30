@@ -81,6 +81,11 @@ ui_print " ";
 # boot install
 dump_boot;
 
+# Fork experiment: spoof locked bootloader state to suppress the
+# "internal problem" boot dialog on unlocked devices. If the entry
+# exists it is replaced, otherwise appended (see patch_cmdline).
+patch_cmdline "androidboot.vbmeta.device_state" "androidboot.vbmeta.device_state=locked";
+
 # Preserve and align boot header OS version and patch level
 if [ -f $home/split_img/header ]; then
     cur_os=$(grep -E '^os_version=' $home/split_img/header 2>/dev/null | cut -d= -f2);
