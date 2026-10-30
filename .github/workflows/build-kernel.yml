@@ -2,6 +2,17 @@ name: Build Mystic Kernel (All Targets)
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Build target (oos = OnePlus OxygenOS, all = COS+AOSP+OOS)'
+        required: false
+        default: 'oos'
+        type: choice
+        options:
+          - oos
+          - all
+          - cos
+          - aosp
 
 permissions:
   contents: write
@@ -79,7 +90,7 @@ jobs:
           GCC64_DIR: ${{ github.workspace }}/gcc-64
           GCC32_DIR: ${{ github.workspace }}/gcc-32
         run: |
-          bash build_tools/build_anykernel.sh all
+          bash build_tools/build_anykernel.sh "${{ inputs.target }}"
 
       - name: Extract Commit Changelog
         id: changelog
@@ -120,6 +131,9 @@ jobs:
           prerelease: false
 
       - name: Upload Release Files and Post to Telegram
+        # Fork: never post to upstream author's Telegram channel
+        # (send_telegram.py falls back to a hardcoded bot token).
+        if: false
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT: ${{ secrets.TG_CHAT }}
