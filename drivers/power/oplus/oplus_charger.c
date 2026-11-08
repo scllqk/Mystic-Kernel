@@ -3832,6 +3832,7 @@ int oplus_chg_init(struct oplus_chg_chip *chip)
 		dev_err(chip->dev, "charger operations cannot be NULL\n");
 		return -1;
 	}
+
 	oplus_chg_track_init(chip);
 	oplus_chg_variables_init(chip);
 	oplus_get_smooth_soc_switch(chip);
@@ -3840,6 +3841,7 @@ int oplus_chg_init(struct oplus_chg_chip *chip)
 	usb_psy = power_supply_get_by_name("usb");
 	if (!usb_psy) {
 		dev_err(chip->dev, "USB psy not found; deferring probe\n");
+		rc = -EPROBE_DEFER;
 		goto power_psy_reg_failed;
 	}
 
@@ -3849,6 +3851,7 @@ int oplus_chg_init(struct oplus_chg_chip *chip)
 	ac_psy = power_supply_get_by_name("ac");
 	if (!ac_psy) {
 		dev_err(chip->dev, "ac psy not found; deferring probe\n");
+		rc = -EPROBE_DEFER;
 		goto power_psy_reg_failed;
 	}
 	chip->ac_psy = ac_psy;
@@ -3857,6 +3860,7 @@ int oplus_chg_init(struct oplus_chg_chip *chip)
 	batt_psy = power_supply_get_by_name("battery");
 	if (!batt_psy) {
 		dev_err(chip->dev, "battery psy not found; deferring probe\n");
+		rc = -EPROBE_DEFER;
 		goto power_psy_reg_failed;
 	}
 	chip->batt_psy = batt_psy;

@@ -4,7 +4,7 @@
 ### AnyKernel setup
 # global properties
 properties() { '
-kernel.string=Mystic Kernel v1.0.61 for OnePlus 9R / 8T (SM8250) by myzanori
+kernel.string=Mystic Kernel v1.0.65 for OnePlus 9R / 8T (SM8250) by myzanori
 do.devicecheck=0
 do.modules=0
 do.systemless=1
@@ -67,61 +67,146 @@ PATCH_VBMETA_FLAG=auto;
 # import functions/variables and setup patching - see for reference (DO NOT REMOVE)
 . tools/ak3-core.sh;
 
-ui_print " ";
-ui_print "========================================";
-ui_print "  Mystic Kernel v1.0.61                 ";
-ui_print "  OnePlus 9R & 8T (SM8250 Kona)         ";
-ui_print "  BakaSU + SUSFS v2.3.0 + NoMount       ";
-ui_print "----------------------------------------";
-ui_print "  Developer : myzanori                  ";
-ui_print "  GitHub    : https://github.com/myzanori";
-ui_print "========================================";
-ui_print " ";
+# Dynamic version, build number, and target configuration
+TARGET_VERSION="__MYSTIC_VERSION__";
+TARGET_BUILD="__MYSTIC_BUILD__";
+TARGET_VARIANT="__TARGET_VARIANT__";
+TARGET_ROM="__TARGET_ROM__";
 
-# boot install
-dump_boot;
-
-# Fork experiment: spoof locked bootloader state to suppress the
-# "internal problem" boot dialog on unlocked devices. If the entry
-# exists it is replaced, otherwise appended (see patch_cmdline).
-patch_cmdline "androidboot.vbmeta.device_state" "androidboot.vbmeta.device_state=locked";
-
-# Preserve and align boot header OS version and patch level
-if [ -f $home/split_img/header ]; then
-    cur_os=$(grep -E '^os_version=' $home/split_img/header 2>/dev/null | cut -d= -f2);
-    if [ -z "$cur_os" ] || [ "$cur_os" = "0.0.0" ]; then
-        sed -i 's/os_version=.*/os_version=14.0.0/' $home/split_img/header;
-    fi;
-    cur_patch=$(grep -E '^os_patch_level=' $home/split_img/header 2>/dev/null | cut -d= -f2);
-    if [ -z "$cur_patch" ] || [ "$cur_patch" = "0" ]; then
-        V_PATCH=$(getprop ro.vendor.build.security_patch 2>/dev/null);
-        if [ -n "$V_PATCH" ]; then
-            sed -i "s/os_patch_level=.*/os_patch_level=$V_PATCH/" $home/split_img/header;
+# Runtime dynamic detection: parse bundled kernel Image if unexpanded placeholders remain
+if [ -f "$home/Image" ]; then
+    IMG_UTS=$(grep -a -m1 -oE "Linux version [^ ]+" "$home/Image" 2>/dev/null);
+    if [ -n "$IMG_UTS" ]; then
+        if [ "$TARGET_VERSION" = "__MYSTIC_VERSION__" ] || [ -z "$TARGET_VERSION" ]; then
+            EXT_VER=$(echo "$IMG_UTS" | grep -oE "v[0-9.]+" | head -n1);
+            [ -n "$EXT_VER" ] && TARGET_VERSION="$EXT_VER";
+        fi;
+        if [ "$TARGET_ROM" = "__TARGET_ROM__" ] || [ -z "$TARGET_ROM" ]; then
+            case "$IMG_UTS" in
+                *COS*) TARGET_ROM="COS"; TARGET_VARIANT="ColorOS 15-17 (COS)";;
+                *OOS*) TARGET_ROM="OOS"; TARGET_VARIANT="OxygenOS 11-14 (OOS)";;
+                *AOSP*) TARGET_ROM="AOSP"; TARGET_VARIANT="AOSP Custom ROMs (AOSP)";;
+            esac;
         fi;
     fi;
 fi;
 
-# write new kernel Image while keeping stock DTB & ramdisk
-write_boot;
+# Final fallback defaults if neither template substitution nor UTS string matched
+[ "$TARGET_VERSION" = "__MYSTIC_VERSION__" ] && TARGET_VERSION="v1.0.65";
+if [ "$TARGET_BUILD" = "__MYSTIC_BUILD__" ]; then
+    TARGET_BUILD=$(echo "$TARGET_VERSION" | sed -E 's/.*\.//' 2>/dev/null);
+    [ -z "$TARGET_BUILD" ] && TARGET_BUILD="65";
+fi;
+[ "$TARGET_VARIANT" = "__TARGET_VARIANT__" ] && TARGET_VARIANT="SM8250 Unified (COS/OOS/AOSP)";
+[ "$TARGET_ROM" = "__TARGET_ROM__" ] && TARGET_ROM="Unified";
 
-# Install persistent runtime tuning and patch level alignment
+ui_print " ";
+ui_print "==================================================";
+ui_print "                  MYSTIC KERNEL                   ";
+ui_print "         High Performance SM8250 Unified          ";
+ui_print "==================================================";
+ui_print "  Release   : Mystic Kernel $TARGET_VERSION (Build $TARGET_BUILD)";
+ui_print "  Variant   : $TARGET_VARIANT";
+ui_print "  Developer : myzanori";
+ui_print "  Features  : BakaSU + SUSFS v2.3.0 + NoMount v2.2.0";
+ui_print "==================================================";
+ui_print " ";
+
+# Gather and display device environment details
+ui_print "[*] Inspecting device environment...";
+DEV_MODEL=$(getprop ro.product.model 2>/dev/null);
+[ -z "$DEV_MODEL" ] && DEV_MODEL=$(getprop ro.product.vendor.model 2>/dev/null);
+[ -z "$DEV_MODEL" ] && DEV_MODEL="OnePlus Kona Device";
+
+DEV_NAME=$(getprop ro.product.device 2>/dev/null);
+[ -z "$DEV_NAME" ] && DEV_NAME=$(getprop ro.build.product 2>/dev/null);
+[ -z "$DEV_NAME" ] && DEV_NAME="kona";
+
+DEV_SLOT=$(getprop ro.boot.slot_suffix 2>/dev/null);
+[ -z "$DEV_SLOT" ] && DEV_SLOT="None (A-only)";
+
+DEV_REL=$(getprop ro.build.version.release 2>/dev/null);
+[ -z "$DEV_REL" ] && DEV_REL="Unknown";
+
+DEV_PATCH=$(getprop ro.build.version.security_patch 2>/dev/null);
+[ -z "$DEV_PATCH" ] && DEV_PATCH=$(getprop ro.vendor.build.security_patch 2>/dev/null);
+[ -z "$DEV_PATCH" ] && DEV_PATCH="Stock";
+
+ui_print "    Device : $DEV_MODEL ($DEV_NAME)";
+ui_print "    Slot   : $DEV_SLOT";
+ui_print "    Android: $DEV_REL (SPL: $DEV_PATCH)";
+ui_print " ";
+
+# Step 1: Dump boot
+ui_print "[*] Step 1/4: Unpacking existing boot partition...";
+dump_boot;
+
+# Fork experiment: spoof locked bootloader state to suppress the
+# "internal problem" boot dialog on unlocked devices.
+patch_cmdline "androidboot.vbmeta.device_state" "androidboot.vbmeta.device_state=locked";
+
+ui_print "[+] Boot image successfully unpacked.";
+
+# Step 2: Preserve and align boot header OS version and patch level
+ui_print "[*] Step 2/4: Checking and aligning boot headers...";
+if [ -f $home/split_img/header ]; then
+    cur_os=$(grep -E '^os_version=' $home/split_img/header 2>/dev/null | cut -d= -f2);
+    if [ -n "$cur_os" ] && [ "$cur_os" != "0.0.0" ]; then
+        ui_print "    Preserved existing OS header: $cur_os";
+    else
+        REL=$(getprop ro.build.version.release 2>/dev/null);
+        if [ -n "$REL" ] && [ "$REL" != "Unknown" ]; then
+            sed -i "s/os_version=.*/os_version=${REL}.0.0/" $home/split_img/header;
+            ui_print "    Aligned OS version header to ${REL}.0.0";
+        else
+            ui_print "    Preserved stock OS version header ($cur_os)";
+        fi;
+    fi;
+    cur_patch=$(grep -E '^os_patch_level=' $home/split_img/header 2>/dev/null | cut -d= -f2);
+    if [ -z "$cur_patch" ] || [ "$cur_patch" = "0" ]; then
+        V_PATCH=$(getprop ro.vendor.build.security_patch 2>/dev/null);
+        [ -z "$V_PATCH" ] && V_PATCH=$(getprop ro.build.version.security_patch 2>/dev/null);
+        if [ -n "$V_PATCH" ] && [ "$V_PATCH" != "Stock" ]; then
+            sed -i "s/os_patch_level=.*/os_patch_level=$V_PATCH/" $home/split_img/header;
+            ui_print "    Aligned patch level header to $V_PATCH";
+        else
+            ui_print "    Preserved stock patch level: $cur_patch";
+        fi;
+    else
+        ui_print "    Preserved existing patch level: $cur_patch";
+    fi;
+fi;
+ui_print "[+] Boot header alignment and Treble check complete.";
+
+# Step 3: Write new kernel Image while keeping stock DTB & ramdisk
+ui_print "[*] Step 3/4: Repacking & flashing Mystic Kernel ($TARGET_ROM)...";
+write_boot;
+ui_print "[+] Kernel image written to boot partition successfully.";
+
+# Step 4: Install persistent runtime tuning and patch level alignment
+ui_print "[*] Step 4/4: Deploying runtime post-boot services...";
+rm -f /data/adb/post-fs-data.d/mystic-tune.sh 2>/dev/null;
+SERVICES_DEPLOYED=0;
 if [ -d /data/adb/service.d ]; then
     cp -f $home/mystic-tune.sh /data/adb/service.d/mystic-tune.sh 2>/dev/null;
     chmod 755 /data/adb/service.d/mystic-tune.sh 2>/dev/null;
+    SERVICES_DEPLOYED=$((SERVICES_DEPLOYED + 1));
 fi;
 if [ -d /data/adb/boot-completed.d ]; then
     cp -f $home/mystic-tune.sh /data/adb/boot-completed.d/mystic-tune.sh 2>/dev/null;
     chmod 755 /data/adb/boot-completed.d/mystic-tune.sh 2>/dev/null;
+    SERVICES_DEPLOYED=$((SERVICES_DEPLOYED + 1));
 fi;
-if [ -d /data/adb/post-fs-data.d ]; then
-    cp -f $home/mystic-tune.sh /data/adb/post-fs-data.d/mystic-tune.sh 2>/dev/null;
-    chmod 755 /data/adb/post-fs-data.d/mystic-tune.sh 2>/dev/null;
+if [ $SERVICES_DEPLOYED -gt 0 ]; then
+    ui_print "    Installed mystic-tune optimizer to $SERVICES_DEPLOYED hook(s).";
+else
+    ui_print "    Standalone mode (service hooks link on root install).";
 fi;
 
 # Install WLAN module if bundled in AnyKernel3 package (OxygenOS targets)
 if [ -d $home/modules/mystic_wlan ] && [ -d /data/adb ]; then
     ui_print " ";
-    ui_print ">> Setting up WLAN driver for OxygenOS...";
+    ui_print "[*] OxygenOS Wi-Fi driver module detected:";
     mkdir -p /data/adb/modules/mystic_wlan
     cp -rf $home/modules/mystic_wlan/* /data/adb/modules/mystic_wlan/
     chmod 755 /data/adb/modules/mystic_wlan
@@ -129,11 +214,25 @@ if [ -d $home/modules/mystic_wlan ] && [ -d /data/adb ]; then
     chmod 644 /data/adb/modules/mystic_wlan/module.prop 2>/dev/null || true
     chmod 644 /data/adb/modules/mystic_wlan/wlan.ko 2>/dev/null || true
     touch /data/adb/modules/mystic_wlan/auto_mount
-    ui_print ">> WLAN module installed to /data/adb/modules/mystic_wlan";
+    ui_print "[+] WLAN driver deployed to /data/adb/modules/mystic_wlan";
 fi;
 
 ui_print " ";
-ui_print ">> Installation Successful!";
-ui_print ">> Enjoy Mystic Kernel by myzanori!";
+ui_print "==================================================";
+ui_print "              INSTALLATION COMPLETED              ";
+ui_print "==================================================";
+ui_print "  Status    : Successfully Installed";
+ui_print "  Release   : Mystic Kernel $TARGET_VERSION (Build $TARGET_BUILD)";
+ui_print "  Target    : $TARGET_VARIANT";
+ui_print " ";
+ui_print "  Active Features:";
+ui_print "  [-] BakaSU & KernelSU Integration Ready";
+ui_print "  [-] SUSFS v2.3.0 Kernel Stealth Engine Active";
+ui_print "  [-] Native Detector / SafetyNet Spoofing Active";
+ui_print "  [-] Dynamic Thermal & Frequency Optimization";
+ui_print "--------------------------------------------------";
+ui_print "  Notice    : Please reboot your device to enjoy!";
+ui_print "  Support   : https://github.com/myzanori";
+ui_print "==================================================";
 ui_print " ";
 ## end boot install

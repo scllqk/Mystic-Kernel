@@ -781,17 +781,25 @@ QDF_STATUS cfg_parse(const char *path)
 	cfg_store_set_defaults(store);
 
 	status = cfg_ini_parse_to_store(path, store);
-	if (QDF_IS_STATUS_ERROR(status))
-		goto free_store;
+	if (QDF_IS_STATUS_ERROR(status)) {
+		/* Attempt fallback vendor firmware paths across AOSP vs Stock OEM layouts */
+		if (strstr(path, "WCNSS_qcom_cfg.ini") || strstr(path, "qcom_cfg.ini")) {
+			if (strcmp(path, "wlan/qca_cld/WCNSS_qcom_cfg.ini") != 0)
+				status = cfg_ini_parse_to_store("wlan/qca_cld/WCNSS_qcom_cfg.ini", store);
+			if (QDF_IS_STATUS_ERROR(status) && strcmp(path, "wlan/qca_cld/qca6390/WCNSS_qcom_cfg.ini") != 0)
+				status = cfg_ini_parse_to_store("wlan/qca_cld/qca6390/WCNSS_qcom_cfg.ini", store);
+			if (QDF_IS_STATUS_ERROR(status) && strcmp(path, "wlan/WCNSS_qcom_cfg.ini") != 0)
+				status = cfg_ini_parse_to_store("wlan/WCNSS_qcom_cfg.ini", store);
+		}
+		if (QDF_IS_STATUS_ERROR(status)) {
+			cfg_info("INI file @ %s missing; falling back to compiled-in defaults\n", path);
+			status = QDF_STATUS_SUCCESS;
+		}
+	}
 
 	__cfg_global_store = store;
 
 	return QDF_STATUS_SUCCESS;
-
-free_store:
-	cfg_store_free(store);
-
-	return status;
 }
 
 void cfg_release(void)
@@ -848,19 +856,26 @@ QDF_STATUS cfg_psoc_parse(struct wlan_objmgr_psoc *psoc, const char *path)
 			     sizeof(store->values));
 
 		status = cfg_ini_parse_to_store(path, store);
-		if (QDF_IS_STATUS_ERROR(status))
-			goto put_store;
+		if (QDF_IS_STATUS_ERROR(status)) {
+			if (strstr(path, "WCNSS_qcom_cfg.ini") || strstr(path, "qcom_cfg.ini")) {
+				if (strcmp(path, "wlan/qca_cld/WCNSS_qcom_cfg.ini") != 0)
+					status = cfg_ini_parse_to_store("wlan/qca_cld/WCNSS_qcom_cfg.ini", store);
+				if (QDF_IS_STATUS_ERROR(status) && strcmp(path, "wlan/qca_cld/qca6390/WCNSS_qcom_cfg.ini") != 0)
+					status = cfg_ini_parse_to_store("wlan/qca_cld/qca6390/WCNSS_qcom_cfg.ini", store);
+				if (QDF_IS_STATUS_ERROR(status) && strcmp(path, "wlan/WCNSS_qcom_cfg.ini") != 0)
+					status = cfg_ini_parse_to_store("wlan/WCNSS_qcom_cfg.ini", store);
+			}
+			if (QDF_IS_STATUS_ERROR(status)) {
+				cfg_info("psoc parse: INI file @ %s missing; preserving inherited global store\n", path);
+				status = QDF_STATUS_SUCCESS;
+			}
+		}
 	}
 
 	psoc_ctx->store = store;
 	cfg_store_put(__cfg_global_store);
 
 	return QDF_STATUS_SUCCESS;
-
-put_store:
-	cfg_store_put(store);
-
-	return status;
 }
 
 qdf_export_symbol(cfg_psoc_parse);

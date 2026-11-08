@@ -119,7 +119,9 @@ fi
 # Create Release Output Directory
 RELEASE_OUT="$KERNEL_DIR/release_out"
 mkdir -p "$RELEASE_OUT"
-rm -f "$RELEASE_OUT"/*.zip
+if [ "$MODE" = "all" ]; then
+    rm -f "$RELEASE_OUT"/*.zip
+fi
 
 if [ -d "$KERNEL_DIR/build_tools/manager" ]; then
     cp -f "$KERNEL_DIR/build_tools/manager/"*.apk "$RELEASE_OUT/" 2>/dev/null || true
@@ -154,7 +156,7 @@ apply_mystic_configs() {
     ./scripts/config --file "$CFG" --enable KSU_SUSFS_OPEN_REDIRECT
     ./scripts/config --file "$CFG" --enable KSU_SUSFS_SUS_MAP
 
-    # Kernel-side NoMount
+    # Kernel-side NoMount v2.2.0 (Driver Protocol v22)
     ./scripts/config --file "$CFG" --enable NOMOUNT
 
     # Networking & Latency
@@ -260,7 +262,10 @@ build_target_pkg() {
     cp "$TARGET_OUT/arch/arm64/boot/Image" "$AK3_DIR/Image"
 
     # Copy and customize AnyKernel script
-    sed -e "s/Mystic Kernel v[0-9.]* (ColorOS 15)/Mystic Kernel v${MYSTIC_VERSION} (${TARGET_DESC})/g" \
+    sed -e "s/^TARGET_VERSION=.*/TARGET_VERSION=\"v${MYSTIC_VERSION}\";/" \
+        -e "s/^TARGET_BUILD=.*/TARGET_BUILD=\"${MYSTIC_BUILD}\";/" \
+        -e "s/^TARGET_VARIANT=.*/TARGET_VARIANT=\"${TARGET_DESC} (${TARGET_ROM})\";/" \
+        -e "s/^TARGET_ROM=.*/TARGET_ROM=\"${TARGET_ROM}\";/" \
         -e "s/kernel.string=.*/kernel.string=Mystic Kernel v${MYSTIC_VERSION} (${TARGET_DESC}) for OnePlus Kona by myzanori/g" \
         "$KERNEL_DIR/build_tools/anykernel.sh" > "$AK3_DIR/anykernel.sh"
 
@@ -312,7 +317,7 @@ PY
 
 case "$MODE" in
     cos)
-        build_target_pkg "COS" "ColorOS 15-17" 0
+        build_target_pkg "COS" "ColorOS 15-17" 1
         ;;
     oos)
         build_target_pkg "OOS" "OxygenOS 11-14" 1
@@ -321,7 +326,7 @@ case "$MODE" in
         build_target_pkg "AOSP" "AOSP" 0
         ;;
     all|*)
-        build_target_pkg "COS" "ColorOS 15-17" 0
+        build_target_pkg "COS" "ColorOS 15-17" 1
         build_target_pkg "AOSP" "AOSP" 0
         build_target_pkg "OOS" "OxygenOS 11-14" 1
         ;;
